@@ -858,45 +858,8 @@ mfxStatus MfxC2AVCSecureFrameConstructor::Load_data(const mfxU8* data, mfxU32 si
 {
     MFX_DEBUG_TRACE_FUNC;
 
+    MFX_DEBUG_TRACE_I32(size);
     mfxStatus mfx_res = MfxC2SecureFrameConstructor::Load(data, size, pts, b_header, bCompleteFrame);
-
-    // if (MFX_ERR_NONE == mfx_res)
-    // {
-    //     MFX_DEBUG_TRACE_STREAM("m_hucbuffer content:");
-    //     MFX_DEBUG_TRACE_I32(pts);
-    //     MFX_DEBUG_TRACE_P(bs);
-    //     MFX_DEBUG_TRACE_I32(m_hucBuffer->pr_magic);
-    //     MFX_DEBUG_TRACE_I32(m_hucBuffer->app_id);
-    //     MFX_DEBUG_TRACE_I32(m_hucBuffer->session_id);
-    //     MFX_DEBUG_TRACE_I32(m_hucBuffer->num_packet_data);
-    //     MFX_DEBUG_TRACE_I32(m_hucBuffer->sample_size);
-    //     MFX_DEBUG_TRACE_I32(m_hucBuffer->cipher_mode);
-    //     std::ostringstream oss_id;
-    //     oss_id << "m_hucBuffer->hw_key_data: ";
-    //     for (auto byte : m_hucBuffer->hw_key_data) {
-    //         oss_id << std::setw(2) << std::setfill('0') << std::hex << std::uppercase << static_cast<int>(byte) << " ";
-    //     }
-    //     MFX_DEBUG_TRACE_STREAM(oss_id.str().c_str());
-
-    //     for (int i=0; i<m_hucBuffer->num_packet_data; i++)
-    //     {
-    //         char* baseAddress = reinterpret_cast<char*>(m_hucBuffer);
-    //         packet_info* packet = reinterpret_cast<packet_info*>(baseAddress + sizeof(HUCVideoBuffer) - 8 + (i * sizeof(packet_info)));
-    //         MFX_DEBUG_TRACE_I32(packet->block_offset);
-    //         MFX_DEBUG_TRACE_I32(packet->data_length);
-    //         MFX_DEBUG_TRACE_I32(packet->clear_bytes);
-    //         MFX_DEBUG_TRACE_I32(packet->encrypted_bytes);
-    //         MFX_DEBUG_TRACE_I32(packet->pattern_clear);
-    //         MFX_DEBUG_TRACE_I32(packet->pattern_encrypted);
-
-    //         std::ostringstream oss;
-    //         oss << "packet->current_iv: ";
-    //         for (auto byte : packet->current_iv) {
-    //             oss << std::setw(2) << std::setfill('0') << std::hex << std::uppercase << static_cast<int>(byte) << " ";
-    //         }
-    //         MFX_DEBUG_TRACE_STREAM(oss.str());
-    //     }
-    // }
 
     bool bFoundSps = false;
     bool bFoundPps = false;
@@ -930,22 +893,24 @@ mfxStatus MfxC2AVCSecureFrameConstructor::Load_data(const mfxU8* data, mfxU32 si
                 if (isSPS(startCode.type))
                 {
                     auto sps = std::make_shared<mfxBitstream>();
+                    MFX_ZERO_MEMORY((*sps));
                     sps->Data = const_cast<mfxU8*>(data) - startCode.size;
 
-                    length = size + startCode.type;
+                    length = size + startCode.size;
                     startCode = ReadStartCode(&data, &size);
                     if (-1 != startCode.type)
                         length -= size + startCode.size;
                     sps->DataLength = length;
-                    MFX_DEBUG_TRACE_MSG("Found SPS, length =");
+                    MFX_DEBUG_TRACE_STREAM("Found SPS size " << length);
                     MFX_DEBUG_TRACE_I32(length);
-                    mfx_res = SaveHeaders(sps, NULL, false);
+                    mfx_res = SaveHeaders(std::move(sps), NULL, false);
                     if (MFX_ERR_NONE != mfx_res) return mfx_res;
                     bFoundSps = true;
                 }
                 if (isPPS(startCode.type))
                 {
                     auto pps = std::make_shared<mfxBitstream>();
+                    MFX_ZERO_MEMORY((*pps));
                     pps->Data = const_cast<mfxU8*>(data) - startCode.size;
 
                     length = size + startCode.size;
@@ -953,9 +918,8 @@ mfxStatus MfxC2AVCSecureFrameConstructor::Load_data(const mfxU8* data, mfxU32 si
                     if (-1 != startCode.type)
                         length -= size + startCode.size;
                     pps->DataLength = length;
-                    MFX_DEBUG_TRACE_MSG("Found PPS, length =");
-                    MFX_DEBUG_TRACE_I32(length);
-                    mfx_res = SaveHeaders(NULL, pps, false);
+                    MFX_DEBUG_TRACE_STREAM("Found PPS size " << length);
+                    mfx_res = SaveHeaders(NULL, std::move(pps), false);
                     if (MFX_ERR_NONE != mfx_res) return mfx_res;
                     bFoundPps = true;
                 }
@@ -976,38 +940,49 @@ mfxStatus MfxC2AVCSecureFrameConstructor::Load_data(const mfxU8* data, mfxU32 si
         }
     }
 
+
+    m_appendHeaderSize = 0;
+    if (MfxC2BS_Resetting == m_bsState) {
+        if (!bFoundSps || !bFoundPps) {
+            m_appendHeaderSize = m_sps.DataLength + m_pps.DataLength;
+        }
+        m_bsState = MfxC2BS_HeaderObtained;
+    }
+
+    // FIXME: recheck m_bstEnc, take m_bstBuf as reference
     // alloc enough space for m_bstEnc->Data
-    if (m_bstEnc->MaxLength < m_hucBuffer->sample_size)
+    if (m_bstEnc->MaxLength < m_hucBuffer->sample_size + m_appendHeaderSize)
     {
-        m_bstEnc->Data = (mfxU8*)realloc(m_bstEnc->Data, m_hucBuffer->sample_size);
+        m_bstEnc->Data = (mfxU8*)realloc(m_bstEnc->Data, m_hucBuffer->sample_size + m_appendHeaderSize);
         if (!m_bstEnc->Data)
             return MFX_ERR_MEMORY_ALLOC;
-        m_bstEnc->MaxLength = m_hucBuffer->sample_size;
+        m_bstEnc->MaxLength = m_hucBuffer->sample_size + m_appendHeaderSize;
     }
 
+    MFX_DEBUG_TRACE_I32(m_hucBuffer->sample_size);
     packet_info* packet = reinterpret_cast<packet_info*>(baseAddress + sizeof(HUCVideoBuffer) - 8);
 
-    // copy  data to m_bstEnc->Data
+    // copy data to m_bstEnc->Data
     m_bstEnc->DataOffset = 0;
-    std::copy(bs, bs + m_hucBuffer->sample_size, m_bstEnc->Data);
-    m_bstEnc->DataLength = m_hucBuffer->sample_size;
+    m_bstEnc->DataLength = 0;
 
-    // m_bstEnc->EncryptedData->Data points to encrypted part
-    if (bFoundIDR || bFoundRegularSlice) {
-        mfxEncryptedData *pEncryptedData = new mfxEncryptedData;
-        if (pEncryptedData)
-        {
-            pEncryptedData->Data = m_bstEnc->Data + packet->clear_bytes;
-            pEncryptedData->DataLength = packet->encrypted_bytes;
-            pEncryptedData->DataOffset = 0;
-            pEncryptedData->Next = NULL;
-        }
-        m_bstEnc->EncryptedData = pEncryptedData;
+    if (m_appendHeaderSize) {
+        MFX_DEBUG_TRACE_MSG("copy header data");
+        mfxU8* buf = m_bstEnc->Data;
+        std::copy(m_sps.Data, m_sps.Data + m_sps.DataLength, buf);
+        buf += m_sps.DataLength;
+        std::copy(m_pps.Data, m_pps.Data + m_pps.DataLength, buf);
+        buf += m_pps.DataLength;
+        m_bstEnc->DataLength = m_sps.DataLength + m_pps.DataLength;
+        std::copy(bs, bs + m_hucBuffer->sample_size, buf);
+        m_bstEnc->DataLength += m_hucBuffer->sample_size;
+    } else {
+        std::copy(bs, bs + m_hucBuffer->sample_size, m_bstEnc->Data);
+        m_bstEnc->DataLength = m_hucBuffer->sample_size;
     }
+
+    MFX_DEBUG_TRACE__mfxBitstream((*m_bstEnc));
     m_bstEnc->TimeStamp = pts;
-    
-    MFX_DEBUG_TRACE_P(m_bstEnc->Data);
-    MFX_DEBUG_TRACE_P(m_bstEnc->EncryptedData->Data);
 
     return mfx_res;
 }
@@ -1027,45 +1002,42 @@ std::shared_ptr<mfxBitstream> MfxC2AVCSecureFrameConstructor::GetMfxBitstream()
 
     if (m_hucBuffer)
     {
-        MFX_ZERO_MEMORY(m_decryptParams);
-        m_decryptParams.Header.BufferId = MFX_EXTBUFF_ENCRYPTION_PARAM;
-        m_decryptParams.Header.BufferSz = sizeof(mfxExtEncryptionParam);
-        m_decryptParams.session = m_hucBuffer->session_id;
-        m_decryptParams.uiNumSegments = m_hucBuffer->num_packet_data;
-        if (m_hucBuffer->cipher_mode == OEMCrypto_CipherMode_CTR) {
-            m_decryptParams.encryption_type = VA_ENCRYPTION_TYPE_SUBSAMPLE_CTR;
-        } else {
-            m_decryptParams.encryption_type = VA_ENCRYPTION_TYPE_SUBSAMPLE_CBC;
-        }
-        std::memcpy(m_decryptParams.key_blob, m_hucBuffer->hw_key_data, sizeof(m_hucBuffer->hw_key_data));
+        MFX_ZERO_MEMORY(m_decryptConfig); //FIXME: memory leak for m_decryptParams.subsamples
+        m_decryptConfig.Header.BufferId = MFX_EXTBUFF_DECRYPT_CONFIG;
+        m_decryptConfig.Header.BufferSz = sizeof(mfxExtDecryptConfig);
+        m_decryptConfig.session = m_hucBuffer->session_id;
+        m_decryptConfig.num_subsamples = m_hucBuffer->num_packet_data;
+        m_decryptConfig.encryption_scheme = m_hucBuffer->cipher_mode;
+        std::memcpy(m_decryptConfig.hw_key_id, m_hucBuffer->hw_key_id, sizeof(m_hucBuffer->hw_key_id));
 
-        m_decryptParams.pSegmentInfo = (EncryptionSegmentInfo*)malloc(m_hucBuffer->num_packet_data * sizeof(EncryptionSegmentInfo));
+        //FIXME: change oemcrypto
         char* baseAddress = reinterpret_cast<char*>(m_hucBuffer);
+        packet_info* packet = reinterpret_cast<packet_info*>(baseAddress + sizeof(HUCVideoBuffer) - 8);
+        std::memcpy(m_decryptConfig.iv, packet->current_iv.data(), packet->current_iv.size());
+
+        m_decryptConfig.subsamples = (SubsampleEntry*)malloc(m_hucBuffer->num_packet_data * sizeof(SubsampleEntry));
         for (int i = 0; i < m_hucBuffer->num_packet_data; i++)
         {
             packet_info* packet = reinterpret_cast<packet_info*>(baseAddress + sizeof(HUCVideoBuffer) - 8 + (i * sizeof(packet_info)));
+            m_decryptConfig.subsamples[i].clear_bytes = packet->clear_bytes + m_appendHeaderSize;
+            if (m_bstEnc->DataOffset != 0)
+                m_decryptConfig.subsamples[i].clear_bytes -= m_bstEnc->DataOffset;
 
-            m_decryptParams.pSegmentInfo[i].segment_start_offset = packet->block_offset;
-            m_decryptParams.pSegmentInfo[i].segment_length = packet->encrypted_bytes;
-            m_decryptParams.pSegmentInfo[i].init_byte_length = packet->block_offset;
-            m_decryptParams.pSegmentInfo[i].partial_aes_block_size = 0;
-
-            IV temp_iv = packet->current_iv;
-            std::memcpy(m_decryptParams.pSegmentInfo[i].aes_cbc_iv_or_ctr, temp_iv.data(), temp_iv.size());
-            std::memset(m_decryptParams.pSegmentInfo[i].aes_cbc_iv_or_ctr + temp_iv.size(), 0, sizeof(m_decryptParams.pSegmentInfo[i].aes_cbc_iv_or_ctr) - temp_iv.size());
+            m_decryptConfig.subsamples[i].cypher_bytes = packet->encrypted_bytes;
+            MFX_DEBUG_TRACE_I32(packet->block_offset);
+            MFX_DEBUG_TRACE_I32(packet->data_length);
+            MFX_DEBUG_TRACE_I32(packet->clear_bytes);
+            MFX_DEBUG_TRACE_I32(packet->encrypted_bytes);
         }
 
         m_extBufs.clear();
-        m_extBufs.push_back(reinterpret_cast<mfxExtBuffer*>(&m_decryptParams));
+        m_extBufs.push_back(reinterpret_cast<mfxExtBuffer*>(&m_decryptConfig));
         m_bstEnc->ExtParam = &m_extBufs.back();
         
         m_bstEnc->NumExtParam = 1;
         m_bstEnc->DataFlag |= MFX_BITSTREAM_COMPLETE_FRAME;
 
-        MFX_DEBUG_TRACE_I32(m_decryptParams.session);
-        MFX_DEBUG_TRACE_I32(m_bstEnc->TimeStamp);
-        MFX_DEBUG_TRACE_I32(m_bstEnc->DataLength);
-        MFX_DEBUG_TRACE_I32(m_bstEnc->EncryptedData->DataLength);
+        MFX_DEBUG_TRACE__mfxBitstream((*m_bstEnc));
 
         return m_bstEnc;
     }

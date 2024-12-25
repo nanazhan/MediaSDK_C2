@@ -252,10 +252,11 @@ protected:
     HUCVideoBuffer* m_hucBuffer = nullptr;
     // bs buffer used for WV L1
     std::shared_ptr<mfxBitstream> m_bstEnc;
+    mfxU32 m_appendHeaderSize = 0;
     // ext buffer vector
     std::vector<mfxExtBuffer*> m_extBufs;
     // MFX_EXTBUFF_ENCRYPTION_PARAM
-    mfxExtEncryptionParam m_decryptParams;
+    mfxExtDecryptConfig m_decryptConfig;
 
 private:
     MFX_CLASS_NO_COPY(MfxC2SecureFrameConstructor)
