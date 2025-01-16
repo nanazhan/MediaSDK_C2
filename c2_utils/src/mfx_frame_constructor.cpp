@@ -1007,8 +1007,10 @@ std::shared_ptr<mfxBitstream> MfxC2AVCSecureFrameConstructor::GetMfxBitstream()
         m_decryptConfig.Header.BufferSz = sizeof(mfxExtDecryptConfig);
         m_decryptConfig.session = m_hucBuffer->session_id;
         m_decryptConfig.num_subsamples = m_hucBuffer->num_packet_data;
-        m_decryptConfig.encryption_scheme = m_hucBuffer->cipher_mode;
+        m_decryptConfig.encryption_scheme = GetEncryptionScheme(m_hucBuffer->cipher_mode);
         std::memcpy(m_decryptConfig.hw_key_id, m_hucBuffer->hw_key_id, sizeof(m_hucBuffer->hw_key_id));
+        MFX_DEBUG_TRACE_I32(m_decryptConfig.encryption_scheme);
+        MFX_DEBUG_TRACE_I32(m_hucBuffer->cipher_mode);
 
         //FIXME: change oemcrypto
         char* baseAddress = reinterpret_cast<char*>(m_hucBuffer);
@@ -1019,10 +1021,14 @@ std::shared_ptr<mfxBitstream> MfxC2AVCSecureFrameConstructor::GetMfxBitstream()
         for (int i = 0; i < m_hucBuffer->num_packet_data; i++)
         {
             packet_info* packet = reinterpret_cast<packet_info*>(baseAddress + sizeof(HUCVideoBuffer) - 8 + (i * sizeof(packet_info)));
-            m_decryptConfig.subsamples[i].clear_bytes = packet->clear_bytes + m_appendHeaderSize;
-            if (m_bstEnc->DataOffset != 0)
-                m_decryptConfig.subsamples[i].clear_bytes -= m_bstEnc->DataOffset;
-
+            m_decryptConfig.subsamples[i].clear_bytes = packet->clear_bytes;
+            if (i == 0) {
+                m_decryptConfig.subsamples[i].clear_bytes += m_appendHeaderSize;
+                // FIXME: When the resolution changes, DataOffset is updated to 1. Need find the reason why?
+                // In this case, we subtract this value to adjust clear_bytes.
+                if (m_bstEnc->DataOffset != 0)
+                    m_decryptConfig.subsamples[i].clear_bytes -= m_bstEnc->DataOffset;
+            }
             m_decryptConfig.subsamples[i].cypher_bytes = packet->encrypted_bytes;
             MFX_DEBUG_TRACE_I32(packet->block_offset);
             MFX_DEBUG_TRACE_I32(packet->data_length);

@@ -50,18 +50,18 @@ typedef struct {
     uint32_t session_id;
     size_t num_packet_data;
     size_t sample_size;
-    EncryptionScheme cipher_mode;
+    OEMCryptoCipherMode cipher_mode;
     uint8_t hw_key_id[16];
     packet_info* packet_data;
 } HUCVideoBuffer;
 
-// inline EncryptionScheme GetEncryptionScheme(OEMCryptoCipherMode mode) {
-//     switch (mode) {
-//         case OEMCrypto_CipherMode_CTR:
-//             return EncryptionScheme::kCenc;
-//         case OEMCrypto_CipherMode_CBC:
-//             return EncryptionScheme::kCbcs;
-//         default:
-//             return EncryptionScheme::kUnencrypted;
-//     }
-// }
+inline EncryptionScheme GetEncryptionScheme(OEMCryptoCipherMode mode) {
+    switch (mode) {
+        case OEMCrypto_CipherMode_CTR:
+            return EncryptionScheme::kCenc;
+        case OEMCrypto_CipherMode_CBC:
+            return EncryptionScheme::kCbcs;
+        default:
+            return EncryptionScheme::kUnencrypted;
+    }
+}
