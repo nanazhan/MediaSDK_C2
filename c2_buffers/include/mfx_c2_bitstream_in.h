@@ -40,7 +40,7 @@ public:
     // Maps c2 linear block and can leave it in mapped state until
     // frame_view freed or frame_view->Release is called.
     virtual c2_status_t AppendFrame(const C2FrameData& buf_pack, c2_nsecs_t timeout,
-        std::unique_ptr<C2ReadView>* view);
+        std::unique_ptr<C2ReadView>* view, bool header);
 
     virtual bool IsInReset();
 protected: // variables

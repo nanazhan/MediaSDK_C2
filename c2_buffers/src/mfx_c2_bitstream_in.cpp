@@ -81,7 +81,7 @@ c2_status_t MfxC2BitstreamIn::Unload()
 }
 
 c2_status_t MfxC2BitstreamIn::AppendFrame(const C2FrameData& buf_pack, c2_nsecs_t timeout,
-    std::unique_ptr<C2ReadView>* frame_view)
+    std::unique_ptr<C2ReadView>* frame_view, bool header)
 {
     MFX_DEBUG_TRACE_FUNC;
 
@@ -91,6 +91,7 @@ c2_status_t MfxC2BitstreamIn::AppendFrame(const C2FrameData& buf_pack, c2_nsecs_
     const mfxU8* infobuffer = nullptr;
     std::unique_ptr<C2ReadView> bs_read_view;
 
+    MFX_DEBUG_TRACE_I32(header);
     do {
         if (!frame_view) {
             res = C2_BAD_VALUE;
@@ -137,14 +138,14 @@ c2_status_t MfxC2BitstreamIn::AppendFrame(const C2FrameData& buf_pack, c2_nsecs_
                                                 infobuffer,
                                                 filled_len,
                                                 buf_pack.ordinal.timestamp.peeku(), // pass pts
-                                                buf_pack.flags & C2FrameData::FLAG_CODEC_CONFIG,
+                                                header,
                                                 true);
             *frame_view = std::move(bs_read_view);
         } else {
              mfx_res = m_frameConstructor->Load(data,
                                                 filled_len,
                                                 buf_pack.ordinal.timestamp.peeku(), // pass pts
-                                                buf_pack.flags & C2FrameData::FLAG_CODEC_CONFIG,
+                                                header,
                                                 true);
             *frame_view = std::move(read_view);
         }

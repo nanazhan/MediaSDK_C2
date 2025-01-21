@@ -191,6 +191,11 @@ mfxStatus MfxC2FrameConstructor::Load(const mfxU8* data, mfxU32 size, mfxU64 pts
     if (MFX_ERR_NONE == mfx_res) {
         mfx_res = Load_None(data, size, pts, header, complete_frame);
     }
+    if (m_decryptConfig.subsamples) {
+        MFX_FREE(m_decryptConfig.subsamples);
+    }
+    MFX_ZERO_MEMORY(m_decryptConfig);
+    m_subsamples.clear();
     MFX_DEBUG_TRACE__mfxBitstream((*m_bstBuf));
     MFX_DEBUG_TRACE__mfxBitstream((*m_bstIn));
     MFX_DEBUG_TRACE__mfxStatus(mfx_res);
@@ -415,6 +420,7 @@ std::shared_ptr<mfxBitstream> MfxC2FrameConstructor::GetMfxBitstream()
         m_extBufs.push_back(reinterpret_cast<mfxExtBuffer*>(&m_decryptConfig));
         bst->ExtParam = &m_extBufs.back();
         bst->NumExtParam = 1;
+        bst->DataFlag |= MFX_BITSTREAM_COMPLETE_FRAME;
     }
 
     MFX_DEBUG_TRACE__mfxBitstream((*bst));
