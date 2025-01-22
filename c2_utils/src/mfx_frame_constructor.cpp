@@ -385,6 +385,8 @@ mfxStatus MfxC2FrameConstructor::BstBufSync()
             m_bstIn = std::make_shared<mfxBitstream>();
             MFX_ZERO_MEMORY((*m_bstIn));
         }
+        m_bstCurrent->ExtParam = nullptr;
+        m_bstCurrent->NumExtParam = 0;
         m_bstCurrent = nullptr;
     }
     MFX_DEBUG_TRACE__mfxStatus(mfx_res);
